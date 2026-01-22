@@ -1,0 +1,735 @@
+---
+title: "Indian_Historical_Constitution_Analysis"
+author: "ravi"
+date: "2025-12-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.width = 10,
+  fig.height = 7,
+  dpi = 300
+)
+rm(list=ls())
+library(tidyverse)    
+library(tidytext)
+library(quanteda)
+library(viridis)
+library(readr)
+library(igraph)
+library(gridExtra)    
+library(ggwordcloud)
+library(quanteda.textstats)
+library(reshape2)
+library(text2vec)
+library(tm)
+library(stopwords)
+
+```
+
+
+
+```{r Figure 1: Token count, echo=FALSE}
+filename = c("CoIBill_1895","IndCouncilAct_1909", "GoIAct_1919","CWIndBill_1925",
+             "MNehruRep_1928", "KarachiRes_1931",  "GoI_1935", "MNRoy_1944", "Hindusthan_1944",
+             "SapruRep_1945",  "Gandhian_1946", "BNRau_1946",
+             "Socialist_1948", "CoI_1949")
+
+data_all_doc = NULL
+
+#CREATING DATAFRAME OF DOCUMENT AND CONTENTS
+for(f in 1:length(filename)){
+  print(f)
+  data = read_file(paste0('/home/ravi/Documents/summer_projects/iitgn/indian_constitution/updated_text_historical_const/',filename[f], '.txt'))
+  data_df = data.frame(data) #changing it into dataframe
+  data_all = data.frame(data_df, docname = rep(filename[f], nrow(data_df)))
+  data_all_doc = rbind(data_all_doc, data_all) 
+}
+
+
+
+#tokenization
+#cOUNT OF WORDS IN EACH DOCUMENT
+data_combined_tokens = data_all_doc %>%        #data frame as tokenization
+  unnest_tokens(word, data) %>%
+  #mutate(word = lemmatize_words(word)) %>%
+  count(docname, word, sort = TRUE) %>%
+  ungroup()
+
+
+stwd = stopwords("english")
+
+#Manual removal of additional STOP WORDS
+Additional_StopWords = data.frame(word = c( "kr", "cfi", "nr", "dcs", "sr", "y", "z", "s", "rs",
+                                   "pnfr", "ica", "o", "p","l", "or", "as", "cib", "NA", "dc",
+                                   "b", "c", "d", "ga", "e", "f", "co", "scr", "cb", "coh", "coi", "dcs", "onc",
+                                   "scr", "goi", "nr", "cb", "ica", "cib", "coh"))
+
+
+data_combined_tokens_without_stwd <- data_combined_tokens %>%
+  filter(!word %in% stwd) %>%
+  filter(!word %in% Additional_StopWords$word) %>%
+  filter(!str_detect(word, "^\\d+$")) %>%
+  filter(!str_detect(word, "[[:punct:]]")) %>%
+  filter(!str_detect(word, regex("^[ivxlcdm]+$", ignore_case = TRUE))) %>%
+  filter(!str_detect(word, "^(.)\\1+$"))
+#filter(nchar(word) > 2)
+
+data_combined_tokens_with_freq <- data_combined_tokens_without_stwd %>%
+  group_by(docname) %>%
+  mutate(total_words = sum(n),          # Total words in each document
+         frequency = n / total_words) #%>% # Relative frequency
+
+
+
+# Calculate total tokens and unique tokens per document
+doc_stats <- data_combined_tokens_without_stwd %>%
+  group_by(docname) %>%
+  summarise(
+    total_tokens = sum(n),        # Total tokens (sum of all word counts)
+    unique_tokens = n_distinct(word)  # Unique tokens (count of distinct words)
+  ) %>%
+  ungroup() %>%
+  pivot_longer(
+    cols = c(total_tokens, unique_tokens),
+    names_to = "metric",
+    values_to = "count"
+  )
+
+
+doc_stats <- doc_stats %>%
+  mutate(docname = fct_reorder(docname, count, .desc = TRUE, .fun = max))
+
+ggplot(doc_stats, aes(x = docname, y = count, fill = metric)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(
+    aes(label = count),
+    position = position_dodge(width = 0.7),
+    hjust = -0.2,
+    size = 4.5
+  ) +
+  scale_fill_manual(
+    values = c("total_tokens" = "skyblue", "unique_tokens" = "#AB82FF"),
+    labels = c("Total Tokens", "Unique Tokens")
+  ) +
+  labs(
+    x = NULL,
+    y = "token count",
+    #title = "Number of Tokens and Unique Tokens per Document",
+    fill = "",
+    caption = "Source: www.constitutionofindia.net"
+  ) +
+  coord_flip() +
+  scale_x_discrete(
+    breaks = c("CoIBill_1895","IndCouncilAct_1909", "GoIAct_1919","CWIndBill_1925",
+               "MNehruRep_1928", "KarachiRes_1931",  "GoI_1935", "MNRoy_1944", "Hindusthan_1944",
+               "SapruRep_1945",  "Gandhian_1946", "BNRau_1946",
+               "Socialist_1948", "CoI_1949"),
+    labels = c("CoIBill 1895","IndCouncilAct 1909", "GoIAct 1919","CWIndBill 1925",
+               "MNehruRep 1928", "KarachiRes 1931",  "GoIAct 1935", "MNRoy 1944", "Hindusthan 1944",
+               "SapruRep 1945",  "Gandhian 1946", "BNRau 1946",
+               "Socialist 1948", "CoI 1949")
+  )+
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 17, face = "bold"),  # Centered title
+    axis.title = element_text(face = "bold"),  # Bold axis titles
+    axis.title.y = element_blank(),
+    axis.text.y = element_text( color = "black", size = 15),
+    axis.text = element_text(size = 15),  # Larger axis text
+    axis.text.x = element_text(angle = 0, hjust = 1, vjust = 1, face = "bold", size = 17),  # Rotated x-axis labels
+    panel.grid.major = element_line(color = "grey90", size = 0.2 ),  # Subtle gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    plot.caption = element_text(size = 15, face = "italic", hjust = 0),  # Italic caption
+    legend.position = c(0.65, 0.75),          # Place legend inside
+    legend.justification = c(0, 1),           # Anchor at top-left of legend box
+    legend.background = element_rect(fill = "white", color = "grey80"), # Optional: Add background
+    legend.title = element_blank()
+  ) 
+
+```
+
+```{r Figure 2: Word Cloud (frequency based), echo= FALSE, fig.width=3, fig.height=3}
+# Prepare data: Top n words per document (instead of 1% quantile)
+top_words <- data_combined_tokens_with_freq %>%
+  group_by(docname) %>%
+  arrange(desc(n)) %>%  # Sort by frequency for each document
+  slice_head(n = 30) %>%  # Take top n words per document
+  ungroup() 
+
+
+# Define custom order for documents
+custom_order <- c("CoIBill_1895","IndCouncilAct_1909", "GoIAct_1919","CWIndBill_1925",
+                  "MNehruRep_1928", "KarachiRes_1931",  "GoI_1935", "MNRoy_1944", "Hindusthan_1944",
+                  "SapruRep_1945",  "Gandhian_1946", "BNRau_1946",
+                  "Socialist_1948", "CoI_1949")
+
+# Reorder docname based on custom order
+top_words$docname <- factor(top_words$docname, levels = custom_order)
+
+doc_labels <- c(
+  "CoIBill_1895" = "CoIBill 1895",
+  "IndCouncilAct_1909" = "IndCouncilAct 1909",
+  "GoIAct_1919" = "GoIAct 1919",
+  "CWIndBill_1925" = "CWIndBill 1925",
+  "MNehruRep_1928" = "MNehruRep 1928",
+  "KarachiRes_1931" = "KarachiRes 1931",
+  "GoI_1935" = "GoIAct 1935",
+  "MNRoy_1944" = "MNRoy 1944",
+  "Hindusthan_1944"="Hindusthan 1944",
+  "SapruRep_1945" = "SapruRep 1945",
+  "Gandhian_1946" = "Gandhian 1946",
+  "BNRau_1946" = "BNRau 1946",
+  "Socialist_1948" = "Socialist 1948",
+  "CoI_1949" = "CoI 1949"
+)
+
+## CHANGE THE FILE NAME TO GENERATE WORD CLOUD OF RESPECTIVE DOCUMENTS
+file_val = filename[1]
+
+doc_data <- top_words %>% filter(docname == file_val)%>%
+  mutate(word_rank = dense_rank(desc(n))) %>%
+  mutate(size_value = (max(word_rank) - word_rank + 1)^1.5) %>%
+  arrange(word_rank, desc(n))
+
+
+set.seed(20)
+ggplot(doc_data, aes(label = word, size = frequency)) +
+  geom_text_wordcloud(shape = "circle") +
+  #scale_size_area(max_size = 8) +
+  scale_radius(range = c(3, 10) ) +
+  theme_minimal()+
+  theme(
+    panel.background = element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+  )
+
+
+```
+
+
+```{r Figure 2: Word Cloud (tf-idf based), echo=FALSE, fig.width=3, fig.height=3}
+data_tf_idf <- data_combined_tokens_without_stwd %>%
+  bind_tf_idf(word, docname, n)
+
+top_tf_idf <- data_tf_idf %>%
+  group_by(docname) %>%
+  arrange(desc(n)) %>%  # Sort by frequency for each document
+  slice_head(n = 30) %>%  # Take top n words per document
+  ungroup() 
+
+## CHANGE THE FILE NAME TO GENERATE WORD CLOUD OF RESPECTIVE DOCUMENTS
+file_val = filename[1]
+
+doc_data <- top_tf_idf %>% filter(docname == file_val)%>%
+  mutate(word_rank = dense_rank(desc(n))) 
+
+set.seed(23)
+
+ggplot(doc_data, aes(label = word, size = tf_idf, color = tf_idf)) +
+  geom_text_wordcloud(shape = "circle") +
+  #scale_size_area(max_size = 8) +
+  scale_color_gradient(low = "red2", high="blue")+
+  scale_radius(range = c(3, 7) ) +
+  theme_minimal()+
+  theme(
+    panel.background = element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+  )
+
+
+```
+
+
+```{r Figure 2: Word Cloud (bigrams, tf-idf based), echo=FALSE, fig.width=5, fig.height=5}
+data_bigram_tokens = data_all_doc  %>%        #data frame as tokenization
+  unnest_tokens(bigram, data, token = "ngrams", n = 2) %>%
+count(docname, bigram, sort = TRUE) %>%
+  ungroup() 
+
+#seperating two words to see if any one of them is a stop word
+bigrams_separated <- data_bigram_tokens %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+#removing bigram if any of the word is stop word
+bigrams_filtered <- bigrams_separated %>%
+  filter(!(word1 %in% stwd | word1 %in% Additional_StopWords$word)) %>%
+  filter(!(word2 %in% stwd | word2 %in% Additional_StopWords$word)) %>%
+  filter( grepl("\\d", word2) != TRUE ) %>%     #removing any numeric characters
+  filter( grepl("\\d", word1) != TRUE ) %>%
+  filter(grepl("([IVXLCMvixlmc]+)\\.?$", word1) != TRUE) %>%
+  filter(grepl("([IVXLCMvixlmc]+)\\.?$", word2) != TRUE) %>%
+  mutate(word1 = str_remove_all(word1, "[:punct:]")) %>%  # Remove punctuation from word1
+  mutate(word2 = str_remove_all(word2, "[:punct:]")) 
+
+
+bigrams_for_wordcloud <- bigrams_filtered %>%
+  # Unite with an underscore separator for word cloud display
+  tidyr::unite(
+    bigram,
+    word1, word2,
+    sep = "_"
+  ) %>%
+  # Aggregate counts in case the cleaning/filtering step created duplicates
+  group_by(docname, bigram) %>% 
+  summarise(n = sum(n), .groups = 'drop') %>%
+  # Select the two columns needed for the word cloud
+  dplyr::select(bigram, n) 
+# NOTE: If you are using 'bigrams_for_wordcloud' directly for a simple word cloud 
+# (without filtering by document first), this is fine. 
+# However, for the subsequent TF-IDF calculation, we need docname, so we use a different structure.
+
+# -------------------------------------------------------------
+# STEP 2B: Prepare for TF-IDF (Requires bigram, docname, and n)
+# -------------------------------------------------------------
+bigrams_tf_idf_input <- bigrams_filtered %>%
+  # Unite with a space separator (or underscore if you prefer, 
+  # but space is generally fine for calculation)
+  tidyr::unite(bigram, word1, word2, sep = "_")
+
+
+bigram_tf_idf <- bigrams_tf_idf_input %>%
+  bind_tf_idf(
+    term = bigram,
+    document = docname,
+    n = n
+  ) %>%
+  # Sort by TF-IDF (optional)
+  arrange(desc(tf_idf))
+
+top_bigrams_tf_idf <- bigram_tf_idf  %>%
+  group_by(docname) %>%
+  arrange(desc(n)) %>%  # Sort by frequency for each document
+  slice_head(n = 30) %>%  # Take top n words per document
+  ungroup() 
+
+## CHANGE THE FILE NAME TO GENERATE WORD CLOUD OF RESPECTIVE DOCUMENTS
+file_val = filename[1]
+
+
+doc_data <- top_bigrams_tf_idf %>% filter(docname == file_val)%>%
+  mutate(word_rank = dense_rank(desc(n))) 
+
+set.seed(30)
+
+ggplot(doc_data, aes(label = bigram, size = tf_idf, color = tf_idf)) +
+  geom_text_wordcloud(shape = "circle") +
+  #scale_size_area(max_size = 8) +
+  scale_color_gradient(low = "red2", high="blue")+
+  scale_radius(range = c(3, 6) ) +
+  theme_minimal()+
+  theme(
+    panel.background = element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+  )
+
+```
+
+
+```{r Figure: Pairwise jaccard similarity, echo=FALSE}
+
+# from long dataframe to DFM, it contains the count
+dfm_without_stwd_count = data_combined_tokens_without_stwd %>%
+  cast_dfm(docname, word, n)
+
+# converts DFM of counts to DFM of presence/absence
+dfm_binary <- dfm_without_stwd_count %>%    #dfm_combined_tokens_without_stwd
+  dfm_weight(scheme = "boolean")
+
+library(quanteda.textstats) # for textstat_simil() function
+
+# Compute Jaccard similarity matrix
+jaccard_sim <- textstat_simil(
+  dfm_binary,
+  method = "jaccard",
+  margin = "documents"  # Compare documents (not features)
+)
+
+# Convert to matrix for easier handling
+jaccard_matrix <- as.matrix(jaccard_sim)
+
+library(reshape2) # for melt() function
+
+# Convert to a tidy pairwise data frame
+jaccard_pairs <- melt(jaccard_matrix) %>%
+  #filter(Var1 != Var2) %>%  # Remove self-comparisons
+  arrange(desc(value))       # Sort by descending similarity
+
+# Define custom order for documents
+custom_order <- c("CoIBill_1895","IndCouncilAct_1909", "GoIAct_1919","CWIndBill_1925",
+                  "MNehruRep_1928", "KarachiRes_1931",  "GoI_1935", "MNRoy_1944", "Hindusthan_1944",
+                  "SapruRep_1945",  "Gandhian_1946", "BNRau_1946",
+                  "Socialist_1948", "CoI_1949")
+
+doc_labels <- c(
+  "CoIBill_1895" = "CoIBill 1895",
+  "IndCouncilAct_1909" = "IndCouncilAct 1909",
+  "GoIAct_1919" = "GoIAct 1919",
+  "CWIndBill_1925" = "CWIndBill 1925",
+  "MNehruRep_1928" = "MNehruRep 1928",
+  "KarachiRes_1931" = "KarachiRes 1931",
+  "GoI_1935" = "GoIAct 1935",
+  "MNRoy_1944" = "MNRoy 1944",
+  "Hindusthan_1944"="Hindusthan 1944",
+  "SapruRep_1945" = "SapruRep 1945",
+  "Gandhian_1946" = "Gandhian 1946",
+  "BNRau_1946" = "BNRau 1946",
+  "Socialist_1948" = "Socialist 1948",
+  "CoI_1949" = "CoI 1949"
+)
+
+
+jaccard_pairs$Var1 <- factor(jaccard_pairs$Var1, levels = custom_order, labels = doc_labels[custom_order])
+jaccard_pairs$Var2 <- factor(jaccard_pairs$Var2, levels = custom_order, labels = doc_labels[custom_order])
+
+
+# keeping only lower part of matrix
+# Filter to keep only the lower triangular part of the matrix
+lower_tri_df <- jaccard_pairs %>%
+  filter(as.numeric(Var1) >= as.numeric(Var2))
+
+# Plot the lower triangular part
+jaccard_simi_plot = ggplot(lower_tri_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 2.5) + 
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(title = "Jaccard Similarity",
+       fill = "Jaccard Similarity", 
+       tag = "A") +
+  scale_x_discrete(limits = rev(levels(jaccard_pairs$Var1))) +  # Reverse x-axis labels
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1, size = 12),  # Adjust x-axis text
+    axis.text.y = element_text(size = 12),  # Adjust y-axis text
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold the title
+    legend.title = element_text(size = 12, face = "bold"),  # Bold legend title
+    legend.position = c(0.7, 0.8),
+    legend.text = element_text(size = 10),  # Adjust legend text size
+    panel.grid.major = element_blank(),  # Remove grid lines
+    panel.grid.minor = element_blank()
+  ) +
+  coord_fixed()
+
+jaccard_simi_plot
+
+```
+
+```{r Figure: Cosine similarity (tf-idf), echo=FALSE}
+
+
+# USING TF-IDF stastistic
+
+dfm_tfidf <- dfm_without_stwd_count %>%
+  quanteda::dfm_tfidf()
+
+cosine_sim_tf_idf <- textstat_simil(
+  dfm_tfidf,
+  method = "cosine",      # Cosine similarity for weighted DFM
+  margin = "documents"    # Compare documents (not features)
+)
+
+cosine_matrix_tf_idf <- as.matrix(cosine_sim_tf_idf)
+
+cosine_pairs <- melt(cosine_matrix_tf_idf) %>%
+  # Arrange by descending similarity
+  arrange(desc(value))
+
+cosine_pairs$Var1 <- factor(cosine_pairs$Var1, levels = custom_order, labels = doc_labels[custom_order])
+cosine_pairs$Var2 <- factor(cosine_pairs$Var2, levels = custom_order, labels = doc_labels[custom_order])
+
+
+# keeping only lower part of matrix (Same)
+lower_tri_df_cosine <- cosine_pairs %>%
+  filter(as.numeric(Var1) >= as.numeric(Var2))
+
+# Plot the lower triangular part (Modified for Cosine)
+tf_idf_cosine_sim = ggplot(lower_tri_df_cosine, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 2.5) +
+  scale_fill_gradient(low = "white", high = "steelblue") + # Changed color for visual distinction
+  theme_minimal(base_size = 14) +
+  labs(title = "", # Updated Title
+       fill = "Cosine Similarity", tag = "A") +
+  scale_x_discrete(limits = rev(levels(cosine_pairs$Var1))) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10),
+    legend.position = c(0.7, 0.8),
+    panel.grid.major = element_blank(),
+    panel.border = element_rect(
+      color = "black",  # Set the border color (e.g., black)
+      fill = NA,        # Crucial: Set fill to NA so it doesn't cover your plot
+      linewidth = 1     # Set the thickness of the border line
+    ),
+    panel.grid.minor = element_blank()
+  ) +
+  coord_fixed()
+
+tf_idf_cosine_sim
+
+```
+
+```{r Figure: MDS, echo=FALSE}
+
+# making MDS plot of pairwise distance
+cosine_distance <- 1 - cosine_matrix_tf_idf
+
+jaccard_distance = 1 - jaccard_matrix
+
+library(smacof)
+max_dim <- 10
+
+stress_tf_idf <- sapply(1:max_dim, function(k) {  # ordinal is non-metric MDS
+  mds(cosine_distance, ndim = k, type = "ordinal")$stress
+})
+
+stress_jaccard <- sapply(1:max_dim, function(k) {
+  mds(jaccard_distance, ndim = k, type = "ordinal")$stress
+})
+
+plot(1:max_dim, stress_tf_idf,
+     type = "b",
+     pch = 19,
+     lty = 1,
+     ylim = range(c(stress_tf_idf, stress_jaccard)),
+     xlab = "Number of dimensions",
+     ylab = "Stress",
+     main = "Stress vs Dimensions (MDS)")
+
+lines(1:max_dim, stress_jaccard,
+      type = "b",
+      pch = 17,
+      lty = 2)
+
+legend("topright",
+       legend = c("Cosine (TF-IDF)", "Jaccard"),
+       pch = c(19, 17),
+       lty = c(1, 2),
+       bty = "n")
+
+# Looks like 2D should be a acceptable.
+set.seed(123)
+
+
+```
+
+
+```{r Figure: nMDS (cosine distance), echo=FALSE}
+set.seed(123)
+
+n_starts <- 20
+
+fits <- lapply(1:n_starts, function(i) {
+  mds(cosine_distance,
+      ndim = 2,
+      type = "ordinal",
+      init = "random")
+})
+
+stress_values <- sapply(fits, `[[`, "stress")
+stress_values
+
+best_fit <- fits[[which.min(stress_values)]]
+best_fit$converged
+
+doc_codes <- rownames(best_fit$conf)
+
+mds_data <- data.frame(
+  Dim1 = best_fit$conf[, 1],
+  Dim2 = best_fit$conf[, 2],
+  code = doc_codes, # <-- NEW: The short document code
+  label = doc_labels[doc_codes],
+  # The numeric order is needed for the chronological plotting path
+  order = as.numeric(factor(doc_codes, levels = custom_order)) 
+)
+
+# adding "BRITISH", "NATIONALIST" and "FINAL" Constitution
+mds_data <- mds_data %>%
+  mutate(
+    family = case_when(
+      code == "CoI_1949" ~ "Final Constitution",
+      code %in% c("GoI_1935", "GoIAct_1919", "IndCouncilAct_1909") ~ "British",
+      TRUE ~ "Nationalist" # All remaining documents
+    )
+  )
+
+
+tf_idf_mds_plot = ggplot(mds_data, aes(x = Dim1, y = Dim2)) +
+  
+  # --- 2. Add Points (Colored by Family, Sized by Family) ---
+  geom_point(aes(color = family, size = family), alpha = 0.5) +
+  
+  # --- 3. Label points ---
+  geom_text(aes(label = label, color = family),
+            size = 4,
+            vjust = -0.95, 
+            hjust = 0.4,
+            check_overlap = TRUE,
+            fontface = "bold",
+            show.legend = FALSE) +
+  
+  # --- 4. Custom Scales for Color and Size ---
+  scale_color_manual(
+    name = "",
+    values = c(
+      "British" = "#d62728",
+      "Final Constitution" = "#2ca02c",
+      "Nationalist" = "#1f77b4"
+    )
+  ) +
+  scale_size_manual(
+    name = "",
+    values = c(
+      "British" = 4,
+      "Final Constitution" = 6,
+      "Nationalist" = 3
+    )
+  ) +
+  
+  # --- 5. Labels and Theming ---
+  labs(
+    title = "",
+    #subtitle = paste("Non-metric MDS, Stress =", round(best_fit$stress, 3)),
+    x = "MDS axis 1",
+    y = "MDS axis 2", tag = "B"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title = element_text(size = 14),
+    axis.text = element_blank(),
+    axis.title.x = element_text(
+      size = 14,
+      margin = margin(t = -90)  # <-- move title up
+    ),
+    #legend.position = c(0.9, 0.9),
+    legend.position = "top",
+    legend.text = element_text(size = 10),
+    panel.border = element_rect(
+      color = "black",  # Set the border color (e.g., black)
+      fill = NA,        # Crucial: Set fill to NA so it doesn't cover your plot
+      linewidth = 1     # Set the thickness of the border line
+    )
+  )
+
+tf_idf_mds_plot
+
+```
+
+
+```{r Figure: nMDS (jaccard), echo=FALSE}
+set.seed(123)
+
+n_starts <- 20
+
+fits <- lapply(1:n_starts, function(i) {
+  mds(jaccard_distance,
+      ndim = 2,
+      type = "ordinal",
+      init = "random")
+})
+
+stress_values <- sapply(fits, `[[`, "stress")
+stress_values
+
+best_fit <- fits[[which.min(stress_values)]]
+best_fit$converged
+
+doc_codes <- rownames(best_fit$conf)
+
+mds_data <- data.frame(
+  Dim1 = best_fit$conf[, 1],
+  Dim2 = best_fit$conf[, 2],
+  code = doc_codes, # <-- NEW: The short document code
+  label = doc_labels[doc_codes],
+  # The numeric order is needed for the chronological plotting path
+  order = as.numeric(factor(doc_codes, levels = custom_order)) 
+)
+
+# adding "BRITISH", "NATIONALIST" and "FINAL" Constitution
+mds_data <- mds_data %>%
+  mutate(
+    family = case_when(
+      code == "CoI_1949" ~ "Final Constitution",
+      code %in% c("GoI_1935", "GoIAct_1919", "IndCouncilAct_1909") ~ "British",
+      TRUE ~ "Nationalist" # All remaining documents
+    )
+  )
+
+
+jaccard_mds_plot = ggplot(mds_data, aes(x = Dim1, y = Dim2)) +
+  
+  # --- 2. Add Points (Colored by Family, Sized by Family) ---
+  geom_point(aes(color = family, size = family), alpha = 0.5) +
+  
+  # --- 3. Label points ---
+  geom_text(aes(label = label, color = family),
+            size = 4,
+            vjust = -0.95, 
+            hjust = 0.4,
+            check_overlap = TRUE,
+            fontface = "bold",
+            show.legend = FALSE) +
+  
+  # --- 4. Custom Scales for Color and Size ---
+  scale_color_manual(
+    name = "",
+    values = c(
+      "British" = "#d62728",
+      "Final Constitution" = "#2ca02c",
+      "Nationalist" = "#1f77b4"
+    )
+  ) +
+  scale_size_manual(
+    name = "",
+    values = c(
+      "British" = 4,
+      "Final Constitution" = 6,
+      "Nationalist" = 3
+    )
+  ) +
+  
+  # --- 5. Labels and Theming ---
+  labs(
+    title = "",
+    #subtitle = paste("Non-metric MDS, Stress =", round(best_fit$stress, 3)),
+    x = "MDS axis 1",
+    y = "MDS axis 2", tag = "B"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title = element_text(size = 14),
+    axis.text = element_blank(),
+    axis.title.x = element_text(
+      size = 14,
+      margin = margin(t = -90)  # <-- move title up
+    ),
+    #legend.position = c(0.9, 0.9),
+    legend.position = "top",
+    legend.text = element_text(size = 10),
+    panel.border = element_rect(
+      color = "black",  # Set the border color (e.g., black)
+      fill = NA,        # Crucial: Set fill to NA so it doesn't cover your plot
+      linewidth = 1     # Set the thickness of the border line
+    )
+  )
+
+jaccard_mds_plot
+
+```
