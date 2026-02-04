@@ -44,7 +44,7 @@ data_all_doc = NULL
 #CREATING DATAFRAME OF DOCUMENT AND CONTENTS
 for(f in 1:length(filename)){
   print(f)
-  data = read_file(paste0('/home/ravi/Documents/summer_projects/iitgn/indian_constitution/updated_text_historical_const/',filename[f], '.txt'))
+  data = read_file(paste0('historical_constitutions_text/',filename[f], '.txt'))
   data_df = data.frame(data) #changing it into dataframe
   data_all = data.frame(data_df, docname = rep(filename[f], nrow(data_df)))
   data_all_doc = rbind(data_all_doc, data_all) 
